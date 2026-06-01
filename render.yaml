@@ -1,0 +1,65 @@
+# Render Blueprint — deploys luckiest-ai as a web service with a persistent disk.
+# https://render.com/docs/blueprint-spec
+#
+# Free tier note: the `free` plan does NOT support disks, so your SQLite database
+# and uploaded images would be wiped on every deploy/restart. The `starter` plan
+# ($7/mo) supports a 1 GB persistent disk for $0.25/mo, which is what we mount
+# here. To deploy on the free tier instead, change `plan: starter` to `plan: free`
+# and delete the `disk:` block at the bottom.
+
+services:
+  - type: web
+    name: luckiest-ai
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /login.html
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.11.0
+
+      - key: SESSION_SECRET
+        generateValue: true
+
+      - key: ADMIN_EMAIL
+        value: admin@luckiest.ai
+      - key: ADMIN_PASSWORD
+        sync: false
+
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-7
+
+      - key: META_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: DATA_DIR
+        value: /var/data
+      - key: UPLOADS_DIR
+        value: /var/data/uploads
+
+    disk:
+      name: luckiest-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AI Brain · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container">
+  <div class="card">
+    <h2>Train your AI brain</h2>
+    <p class="subtitle">The more you write here, the more the AI will sound exactly like you. Be honest. Be specific.</p>
+    <form id="form">
+      <label>About you <span class="hint">(your story, what you do, where you're based)</span></label>
+      <textarea name="bio" placeholder="I'm a 28-year-old fashion designer based in Lagos. I run a brand called..." rows="4"></textarea>
+
+      <div class="row">
+        <div>
+          <label>Personality</label>
+          <textarea name="personality" placeholder="friendly, playful, slightly cheeky, uses 'babe' a lot..." rows="3"></textarea>
+        </div>
+        <div>
+          <label>Tone of voice</label>
+          <textarea name="tone" placeholder="warm, conversational, short sentences, like texting a friend..." rows="3"></textarea>
+        </div>
+      </div>
+
+      <label>Languages you speak <span class="hint">(AI replies in whichever the customer used)</span></label>
+      <input name="languages" placeholder="English, Nigerian Pidgin, Yoruba, French" />
+
+      <label>What you do / your business</label>
+      <textarea name="business_info" placeholder="What you sell, prices, delivery times, payment details, returns policy..." rows="5"></textarea>
+
+      <label>FAQ <span class="hint">(common questions and how you actually answer)</span></label>
+      <textarea name="faq" placeholder="Q: How long does delivery take?&#10;A: 2-5 days depending on location." rows="6"></textarea>
+
+      <label>Sample messages <span class="hint">(5–10 real messages you've sent — this teaches the AI your voice)</span></label>
+      <textarea name="sample_messages" placeholder="Hey babe! Yes the dress dey available. Send your measurements abeg.&#10;&#10;No wahala, I go ship am tomorrow." rows="6"></textarea>
+
+      <label>Escalation triggers <span class="hint">(comma-separated — words that flip a thread to you)</span></label>
+      <input name="escalation_keywords" placeholder="refund, complaint, lawyer, manager, angry, scam, fraud" />
+
+      <div style="margin-top: 24px; display: flex; gap: 10px;">
+        <button type="submit">Save AI brain</button>
+        <a class="btn ghost" href="/platforms.html">Next: connect platforms →</a>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="/app.js"></script>
+<script>
+(async function() {
+  await renderTopbar('profile');
+  if (new URLSearchParams(location.search).has('welcome')) {
+    toast('Welcome! Train your AI by filling this out.', 'success');
+  }
+  try {
+    const { profile } = await api('/api/profile');
+    const form = document.getElementById('form');
+    for (const k of Object.keys(profile || {})) {
+      const el = form.elements.namedItem(k);
+      if (el && profile[k]) el.value = profile[k];
+    }
+  } catch (err) { location.href = '/login.html'; }
+
+  document.getElementById('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+      await api('/api/profile', { method: 'PUT', body: data });
+      toast('AI brain updated. Your clone just got smarter.', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  };
+})();
+</script>
+</body>
+</html>

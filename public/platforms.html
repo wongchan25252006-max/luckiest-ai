@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Platforms · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container">
+  <div class="card">
+    <h2>Connect a platform</h2>
+    <p class="subtitle">Paste access tokens. Webhook URLs are shown below — register them in Meta / WhatsApp Business Manager.</p>
+    <form id="form">
+      <div class="row">
+        <div>
+          <label>Platform</label>
+          <select name="platform">
+            <option value="facebook">Facebook Page</option>
+            <option value="instagram">Instagram Business</option>
+            <option value="whatsapp">WhatsApp Cloud API</option>
+            <option value="telegram">Telegram Bot</option>
+          </select>
+        </div>
+        <div>
+          <label>Label <span class="hint">(just for you)</span></label>
+          <input name="account_label" placeholder="My main account" />
+        </div>
+      </div>
+      <label>Access token</label>
+      <input name="access_token" placeholder="EAAB... or BotFather token" required />
+
+      <label>Account ID <span class="hint">(Page ID, IG Business ID, WhatsApp phone_number_id — leave blank for Telegram)</span></label>
+      <input name="account_id" placeholder="optional" />
+
+      <label>Extra JSON <span class="hint">(e.g. Telegram channel: {"channel_id": "@yourchannel"})</span></label>
+      <input name="extra" placeholder='{"channel_id": "@yourchannel"}' />
+
+      <div style="margin-top: 20px;"><button type="submit">Connect →</button></div>
+    </form>
+    <div class="card" style="background: rgba(13,17,38,0.4); margin-top: 22px; padding: 18px;">
+      <strong style="font-size: 13px;">📡 Webhook URLs</strong>
+      <div style="color: var(--text-2); margin: 10px 0 0; font-size: 13px; line-height: 1.8;" id="webhooks">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Connected accounts</h2>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+(async function() {
+  await renderTopbar('platforms');
+  document.getElementById('webhooks').innerHTML = `
+    <div>Meta (Facebook + Instagram): <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${location.origin}/webhooks/meta</code></div>
+    <div>WhatsApp: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${location.origin}/webhooks/whatsapp</code></div>
+    <div>Telegram: polled automatically — no webhook needed.</div>
+  `;
+
+  async function load() {
+    try {
+      const { connections } = await api('/api/platforms');
+      if (!connections.length) {
+        document.getElementById('list').innerHTML = `<div class="empty"><div class="big">🔌</div>No platforms connected yet.</div>`;
+        return;
+      }
+      document.getElementById('list').innerHTML = `
+        <table><thead><tr><th>Platform</th><th>Label</th><th>Account ID</th><th>Status</th><th></th></tr></thead><tbody>
+        ${connections.map(c => `
+          <tr>
+            <td>${platformIcon(c.platform)} <span style="margin-left:8px; text-transform: capitalize;">${c.platform}</span></td>
+            <td>${escapeHtml(c.account_label || '—')}</td>
+            <td><code style="font-size: 12px;">${escapeHtml(c.account_id || '')}</code></td>
+            <td>${c.active ? '<span class="tag good">active</span>' : '<span class="tag">disabled</span>'}</td>
+            <td><button class="small danger" data-id="${c.id}">Remove</button></td>
+          </tr>
+        `).join('')}
+        </tbody></table>
+      `;
+      document.querySelectorAll('button[data-id]').forEach(b => b.onclick = async () => {
+        if (!confirm('Remove this connection?')) return;
+        await api('/api/platforms/' + b.dataset.id, { method: 'DELETE' });
+        load();
+      });
+    } catch (err) { location.href = '/login.html'; }
+  }
+
+  document.getElementById('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    if (data.extra) {
+      try { JSON.parse(data.extra); } catch { return toast('Extra must be valid JSON', 'error'); }
+    } else { delete data.extra; }
+    try {
+      await api('/api/platforms/connect', { method: 'POST', body: data });
+      e.target.reset();
+      toast('Connected!', 'success');
+      load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>

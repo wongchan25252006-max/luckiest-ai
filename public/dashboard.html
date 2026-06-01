@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dashboard · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container">
+  <div id="welcome"></div>
+  <div class="stat-grid" id="stats"></div>
+
+  <div class="row">
+    <div class="card">
+      <h2>Recent activity</h2>
+      <p class="subtitle">Latest messages your AI handled.</p>
+      <div id="recent"></div>
+    </div>
+    <div class="card">
+      <h2>Quick actions</h2>
+      <p class="subtitle">Get more out of Luckiest AI.</p>
+      <div style="display:flex; flex-direction: column; gap: 10px;">
+        <a class="btn" href="/profile.html">🧠 Train your AI</a>
+        <a class="btn ghost" href="/platforms.html">🔌 Connect a platform</a>
+        <a class="btn ghost" href="/scheduler.html">📅 Schedule a post</a>
+        <a class="btn ghost" href="/manager.html">👥 Manage contacts</a>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/app.js"></script>
+<script>
+(async function() {
+  await renderTopbar('dashboard');
+  try {
+    const me = (await api('/api/auth/me')).user;
+    document.getElementById('welcome').innerHTML =
+      `<h1 style="margin:0 0 24px;">Hello, ${escapeHtml(me.full_name || me.email)} 👋</h1>`;
+
+    const [convs, notifs, platforms, posts] = await Promise.all([
+      api('/api/messages/conversations').then(r => r.conversations || []),
+      api('/api/messages/notifications').then(r => r.notifications || []),
+      api('/api/platforms').then(r => r.connections || []),
+      api('/api/scheduler').then(r => r.posts || [])
+    ]);
+
+    const needsHelp = convs.filter(c => c.needs_human).length;
+    const unread = notifs.filter(n => !n.read).length;
+    const pending = posts.filter(p => p.status === 'pending').length;
+    const aiReplies = convs.length; // approximation; real metric on admin
+
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="label">Conversations</div><div class="value">${convs.length}</div></div>
+      <div class="stat"><div class="label">Needs help</div><div class="value" style="background: linear-gradient(120deg, #ff8a96, var(--bad)); -webkit-background-clip: text; background-clip: text; color: transparent;">${needsHelp}</div></div>
+      <div class="stat"><div class="label">Unread alerts</div><div class="value">${unread}</div></div>
+      <div class="stat"><div class="label">Platforms</div><div class="value">${platforms.filter(p=>p.active).length}</div></div>
+      <div class="stat"><div class="label">Scheduled posts</div><div class="value">${pending}</div></div>
+    `;
+
+    const recent = convs.slice(0, 8);
+    if (!recent.length) {
+      document.getElementById('recent').innerHTML = `<div class="empty"><div class="big">💬</div>No conversations yet. Connect a platform to get started.</div>`;
+    } else {
+      document.getElementById('recent').innerHTML = `
+        <table><thead><tr><th>From</th><th>Platform</th><th>Last message</th><th>When</th><th></th></tr></thead><tbody>
+        ${recent.map(c => `
+          <tr>
+            <td><strong>${escapeHtml(c.customer_name || c.customer_handle || 'unknown')}</strong></td>
+            <td>${platformIcon(c.platform)}</td>
+            <td style="max-width: 320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.last_body || '')}</td>
+            <td style="color: var(--muted); font-size: 13px;">${fmtAgo(c.last_message_at)}</td>
+            <td>${c.needs_human ? '<span class="tag bad">needs help</span>' : '<span class="tag good">AI handled</span>'}</td>
+          </tr>
+        `).join('')}
+        </tbody></table>
+      `;
+    }
+  } catch (err) { location.href = '/login.html'; }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Billing · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container">
+  <h1 style="margin: 0 0 8px;">Choose your plan</h1>
+  <p style="color: var(--muted); margin: 0 0 28px;">Pick a tier. You can upgrade or cancel any time. (Payment integration is mock — wire Stripe in production.)</p>
+
+  <div id="current" class="card" style="margin-bottom: 28px;"></div>
+
+  <div class="plan-grid" id="plans"></div>
+</div>
+<script src="/app.js"></script>
+<script>
+(async function() {
+  await renderTopbar('billing');
+  let me, plans;
+  try {
+    me = (await api('/api/billing/me'));
+    plans = (await api('/api/billing/plans')).plans;
+  } catch (err) { location.href = '/login.html'; return; }
+
+  const sub = me.subscription;
+  document.getElementById('current').innerHTML = `
+    <h2>Current plan</h2>
+    <p class="subtitle">${plans[sub.plan]?.name || 'Free'} — ${sub.status}</p>
+    <div style="display:flex; gap:24px; flex-wrap: wrap; align-items: center;">
+      <div>
+        <div style="color: var(--muted); font-size: 12px;">MRR</div>
+        <div style="font-family: 'Plus Jakarta Sans'; font-size: 28px; font-weight: 800;">${fmtMoney(sub.amount_monthly)}<span style="font-size: 14px; font-weight: 500; color: var(--muted);">/month</span></div>
+      </div>
+      <div>
+        <div style="color: var(--muted); font-size: 12px;">Renews</div>
+        <div style="font-weight: 600;">${sub.current_period_end ? fmtDate(sub.current_period_end) : '—'}</div>
+      </div>
+      ${sub.status === 'active' ? '<button class="ghost small" id="cancelBtn">Cancel subscription</button>' : ''}
+    </div>
+  `;
+  if (document.getElementById('cancelBtn')) {
+    document.getElementById('cancelBtn').onclick = async () => {
+      if (!confirm('Cancel your subscription? You will keep access until the end of the period.')) return;
+      await api('/api/billing/cancel', { method: 'POST' });
+      toast('Subscription canceled.', 'success'); location.reload();
+    };
+  }
+
+  document.getElementById('plans').innerHTML = Object.entries(plans).map(([key, p]) => `
+    <div class="plan ${key==='pro'?'featured':''}">
+      <h3>${p.name}</h3>
+      <div class="price">${fmtMoney(p.monthly)}<small>/month</small></div>
+      <ul>${p.features.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>
+      <button class="${sub.plan===key && sub.status==='active'?'ghost':''}" data-plan="${key}" ${sub.plan===key && sub.status==='active'?'disabled':''}>
+        ${sub.plan===key && sub.status==='active' ? 'Current plan' : (p.monthly === 0 ? 'Switch to Free' : 'Subscribe')}
+      </button>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('button[data-plan]').forEach(b => b.onclick = async () => {
+    try {
+      await api('/api/billing/subscribe', { method: 'POST', body: { plan: b.dataset.plan } });
+      toast('Plan updated.', 'success');
+      setTimeout(() => location.reload(), 500);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+})();
+</script>
+</body>
+</html>

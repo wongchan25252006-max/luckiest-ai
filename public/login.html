@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Log in · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container narrow">
+  <div class="card">
+    <h2 style="text-align:center;">Welcome back</h2>
+    <p class="subtitle" style="text-align:center;">Sign in to your Luckiest AI account.</p>
+    <form id="form">
+      <label>Email</label>
+      <input name="email" type="email" required autofocus />
+      <label>Password</label>
+      <input name="password" type="password" required />
+      <div style="margin-top: 22px;"><button type="submit" style="width:100%; justify-content: center;">Log in →</button></div>
+    </form>
+    <p style="margin-top: 18px; color: var(--muted); text-align: center; font-size: 14px;">No account? <a href="/signup.html">Sign up free</a></p>
+  </div>
+</div>
+<script src="/app.js"></script>
+<script>
+renderTopbar('login');
+document.getElementById('form').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  try {
+    const r = await api('/api/auth/login', { method: 'POST', body: data });
+    location.href = r.user.role === 'admin' ? '/admin.html' : '/dashboard.html';
+  } catch (err) { toast(err.message, 'error'); }
+};
+</script>
+</body>
+</html>

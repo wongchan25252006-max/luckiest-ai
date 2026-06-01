@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Scheduler · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container">
+  <div class="card">
+    <h2>Schedule a post</h2>
+    <p class="subtitle">Upload a photo or video, write or auto-generate a caption, pick a time, and choose where to publish.</p>
+    <form id="form" enctype="multipart/form-data">
+      <label>Media <span class="hint">(image or video — required for Instagram)</span></label>
+      <input name="media" type="file" accept="image/*,video/*" id="mediaInput" />
+      <div id="preview" style="margin-top: 10px;"></div>
+
+      <label>Caption</label>
+      <textarea name="caption" id="caption" rows="4" placeholder="Write your caption, or use AI ↓"></textarea>
+
+      <div style="display:flex; gap:10px; margin-top:8px;">
+        <input id="aiPrompt" placeholder="Or describe what to write — e.g. 'launching new dress, excited'" style="flex:1;" />
+        <button type="button" class="ghost" id="genCaption">✨ Generate</button>
+      </div>
+
+      <div class="row" style="margin-top: 16px;">
+        <div>
+          <label>Schedule for</label>
+          <input name="scheduled_for" type="datetime-local" required />
+        </div>
+        <div>
+          <label>Platforms</label>
+          <div class="checkbox-row">
+            <label><input type="checkbox" name="platforms" value="facebook" /> ${'Facebook'}</label>
+            <label><input type="checkbox" name="platforms" value="instagram" /> Instagram</label>
+            <label><input type="checkbox" name="platforms" value="telegram" /> Telegram</label>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px;"><button type="submit">Schedule post →</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Queue</h2>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+(async function() {
+  await renderTopbar('scheduler');
+
+  document.getElementById('mediaInput').onchange = (e) => {
+    const f = e.target.files?.[0];
+    const preview = document.getElementById('preview');
+    if (!f) { preview.innerHTML = ''; return; }
+    const url = URL.createObjectURL(f);
+    if (f.type.startsWith('video/')) {
+      preview.innerHTML = `<video src="${url}" controls style="max-height: 200px; border-radius: 10px;"></video>`;
+    } else {
+      preview.innerHTML = `<img src="${url}" style="max-height: 200px; border-radius: 10px;">`;
+    }
+  };
+
+  async function load() {
+    const { posts } = await api('/api/scheduler');
+    if (!posts.length) {
+      document.getElementById('list').innerHTML = `<div class="empty"><div class="big">📅</div>No scheduled posts yet.</div>`;
+      return;
+    }
+    document.getElementById('list').innerHTML = `
+      <table><thead><tr><th>When</th><th>Platforms</th><th>Caption</th><th>Media</th><th>Status</th><th></th></tr></thead><tbody>
+        ${posts.map(p => `
+          <tr>
+            <td>${fmtDate(p.scheduled_for)}</td>
+            <td>${p.platforms.map(x=>platformIcon(x)).join(' ')}</td>
+            <td style="max-width: 320px;">${escapeHtml((p.caption||'').slice(0,140))}${(p.caption||'').length>140?'…':''}</td>
+            <td>${p.media_path ? (p.media_type === 'video'
+              ? `<span class="tag accent">🎥 video</span>`
+              : `<img src="/${p.media_path}" style="height:40px; border-radius:6px;">`) : '—'}</td>
+            <td><span class="tag ${p.status==='posted'?'good':p.status==='failed'?'bad':p.status==='partial'?'warn':''}">${p.status}</span>
+              ${p.error?`<div style="color:var(--bad);font-size:11px;margin-top:4px;">${escapeHtml(p.error)}</div>`:''}</td>
+            <td>${p.status==='pending'?`<button class="small danger" data-id="${p.id}">Delete</button>`:''}</td>
+          </tr>
+        `).join('')}
+      </tbody></table>
+    `;
+    document.querySelectorAll('button[data-id]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this scheduled post?')) return;
+      await api('/api/scheduler/' + b.dataset.id, { method: 'DELETE' });
+      load();
+    });
+  }
+
+  document.getElementById('genCaption').onclick = async () => {
+    const prompt = document.getElementById('aiPrompt').value.trim();
+    if (!prompt) return toast('Type what to write about first.', 'error');
+    try {
+      const { caption } = await api('/api/scheduler/caption', { method: 'POST', body: { prompt } });
+      document.getElementById('caption').value = caption;
+      toast('Caption generated.', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  document.getElementById('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const platforms = fd.getAll('platforms');
+    if (!platforms.length) return toast('Pick at least one platform.', 'error');
+    fd.delete('platforms');
+    fd.append('platforms', platforms.join(','));
+    try {
+      await api('/api/scheduler', { method: 'POST', body: fd });
+      e.target.reset();
+      document.getElementById('preview').innerHTML = '';
+      toast('Post scheduled.', 'success');
+      load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>

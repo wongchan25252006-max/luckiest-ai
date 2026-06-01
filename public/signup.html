@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Sign up · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container narrow">
+  <div class="card">
+    <h2 style="text-align:center;">Create your account</h2>
+    <p class="subtitle" style="text-align:center;">14-day free trial. No credit card required.</p>
+    <form id="form">
+      <label>Full name</label>
+      <input name="full_name" placeholder="Jane Doe" required autofocus />
+      <label>Email</label>
+      <input name="email" type="email" placeholder="you@example.com" required />
+      <label>Password <span class="hint">(min. 6 characters)</span></label>
+      <input name="password" type="password" minlength="6" required />
+      <div style="margin-top: 22px;"><button type="submit" style="width:100%; justify-content: center;">Create account →</button></div>
+    </form>
+    <p style="margin-top: 18px; color: var(--muted); text-align: center; font-size: 14px;">Already have one? <a href="/login.html">Log in</a></p>
+  </div>
+</div>
+<script src="/app.js"></script>
+<script>
+renderTopbar('signup');
+document.getElementById('form').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  try {
+    await api('/api/auth/signup', { method: 'POST', body: data });
+    location.href = '/profile.html?welcome=1';
+  } catch (err) { toast(err.message, 'error'); }
+};
+</script>
+</body>
+</html>

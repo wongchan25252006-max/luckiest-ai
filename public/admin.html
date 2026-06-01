@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Admin · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container wide">
+  <h1 style="margin: 0 0 4px;">Admin command center</h1>
+  <p style="color: var(--muted); margin: 0 0 22px;">Platform-wide view of users, revenue, AI activity, and alerts.</p>
+
+  <div class="stat-grid" id="stats"></div>
+
+  <div class="card">
+    <h2>Alerts feed</h2>
+    <p class="subtitle">Mirrored notifications from all users — escalations, failures, new contacts.</p>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <h2>All users</h2>
+    <p class="subtitle">${'Subscriptions, platform connections, conversation counts.'}</p>
+    <div id="users"></div>
+  </div>
+
+  <div class="card">
+    <h2>All conversations</h2>
+    <div class="chips">
+      <div class="chip active" data-filter="">Everything</div>
+      <div class="chip" data-filter="needs_help">Needs help</div>
+    </div>
+    <div class="split">
+      <div class="list" id="convList"></div>
+      <div class="thread" id="thread">
+        <div class="header"><strong>Pick a conversation</strong></div>
+        <div class="messages"><div class="empty"><div class="big">📥</div>Click a conversation on the left to inspect it.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+let filter = '';
+let currentId = null;
+
+async function loadStats() {
+  const { stats } = await api('/api/admin/stats');
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="label">Users</div><div class="value">${stats.users}</div></div>
+    <div class="stat"><div class="label">MRR</div><div class="value">${fmtMoney(stats.mrr)}</div></div>
+    <div class="stat"><div class="label">ARR</div><div class="value">${fmtMoney(stats.arr)}</div></div>
+    <div class="stat"><div class="label">Active subs</div><div class="value">${stats.active_subs}</div></div>
+    <div class="stat"><div class="label">Conversations</div><div class="value">${stats.conversations}</div></div>
+    <div class="stat"><div class="label">AI replies</div><div class="value">${stats.ai_replies}</div></div>
+    <div class="stat"><div class="label">Need help</div><div class="value" style="background: linear-gradient(120deg, #ff8a96, var(--bad)); -webkit-background-clip: text; background-clip: text; color: transparent;">${stats.pending_help}</div></div>
+    <div class="stat"><div class="label">New (24h)</div><div class="value">${stats.new_contacts_24h}</div></div>
+    <div class="stat"><div class="label">Posts queued</div><div class="value">${stats.scheduled_pending}</div></div>
+    <div class="stat"><div class="label">Posts published</div><div class="value">${stats.posts_published}</div></div>
+    <div class="stat"><div class="label">Platforms</div><div class="value">${stats.platforms}</div></div>
+  `;
+}
+
+async function loadAlerts() {
+  const { notifications } = await api('/api/admin/notifications');
+  if (!notifications.length) {
+    document.getElementById('alerts').innerHTML = `<div class="empty">No alerts right now. All quiet.</div>`;
+    return;
+  }
+  document.getElementById('alerts').innerHTML = `
+    <table><thead><tr><th>When</th><th>Type</th><th>Title</th><th></th></tr></thead><tbody>
+      ${notifications.slice(0,30).map(n => `
+        <tr>
+          <td style="color:var(--muted); white-space: nowrap;">${fmtAgo(n.created_at)}</td>
+          <td><span class="tag ${n.type.includes('needs_help')?'bad':n.type.includes('failed')?'warn':n.type.includes('new_contact')?'accent':''}">${escapeHtml(n.type.replace(/^admin_/, ''))}</span></td>
+          <td>${escapeHtml(n.title)}<div style="color:var(--muted); font-size:12px; margin-top: 3px;">${escapeHtml((n.body||'').slice(0,140))}</div></td>
+          <td>${n.conversation_id?`<button class="small ghost" data-conv="${n.conversation_id}">Open</button>`:''}</td>
+        </tr>
+      `).join('')}
+    </tbody></table>
+  `;
+  document.querySelectorAll('button[data-conv]').forEach(b => b.onclick = () => openThread(Number(b.dataset.conv)));
+}
+
+async function loadUsers() {
+  const { users } = await api('/api/admin/users');
+  document.getElementById('users').innerHTML = `
+    <table><thead><tr><th>User</th><th>Plan</th><th>MRR</th><th>Platforms</th><th>Conversations</th><th>Need help</th><th>Joined</th></tr></thead><tbody>
+      ${users.map(u => `
+        <tr>
+          <td><strong>${escapeHtml(u.email)}</strong><div style="color: var(--muted); font-size: 12px;">${escapeHtml(u.full_name||'')}</div></td>
+          <td><span class="tag accent">${escapeHtml(u.plan)}</span> <span class="tag ${u.sub_status==='active'?'good':u.sub_status==='canceled'?'bad':'warn'}">${escapeHtml(u.sub_status)}</span></td>
+          <td>${fmtMoney(u.mrr)}</td>
+          <td>${u.platform_count}</td>
+          <td>${u.conversation_count}</td>
+          <td>${u.pending_count?`<span class="tag bad">${u.pending_count}</span>`:'0'}</td>
+          <td style="color:var(--muted); font-size: 13px;">${fmtDate(u.created_at)}</td>
+        </tr>
+      `).join('')}
+    </tbody></table>
+  `;
+}
+
+async function loadConvs() {
+  const q = filter ? '?filter=' + filter : '';
+  const { conversations } = await api('/api/admin/conversations' + q);
+  if (!conversations.length) {
+    document.getElementById('convList').innerHTML = `<div class="empty">No conversations.</div>`;
+    return;
+  }
+  document.getElementById('convList').innerHTML = conversations.map(c => `
+    <div class="item ${c.id===currentId?'active':''}" data-id="${c.id}">
+      ${avatar(c.profile_pic, c.customer_name || c.customer_handle, 40)}
+      <div class="body">
+        <div class="who">
+          <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.customer_name||c.customer_handle||'unknown')}</span>
+          ${platformIcon(c.platform)}
+          ${c.needs_human?'<span class="tag bad">help</span>':''}
+        </div>
+        <div class="preview">${escapeHtml((c.last_body||'').slice(0,80))}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:3px;">${escapeHtml(c.owner_email)} · ${fmtAgo(c.last_message_at)}</div>
+      </div>
+    </div>
+  `).join('');
+  document.querySelectorAll('#convList .item').forEach(el => el.onclick = () => openThread(Number(el.dataset.id)));
+}
+
+async function openThread(id) {
+  currentId = id;
+  document.querySelectorAll('#convList .item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
+  const { conversation, messages } = await api('/api/admin/conversations/' + id);
+  document.getElementById('thread').innerHTML = `
+    <div class="header">
+      <div style="display:flex; align-items: center; gap: 12px;">
+        ${avatar(conversation.profile_pic, conversation.customer_name || conversation.customer_handle, 40)}
+        <div>
+          <strong>${escapeHtml(conversation.customer_name||conversation.customer_handle||'unknown')}</strong>
+          <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">
+            ${platformIcon(conversation.platform)} owner: ${escapeHtml(conversation.owner_email)}
+            ${conversation.needs_human?'<span class="tag bad">needs help</span>':''}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="messages">
+      ${messages.map(m => `
+        <div class="msg ${m.direction}">
+          ${m.media_type==='voice' ? '<div style="font-size:11px; opacity:.8;">🎤 Voice message</div>' : ''}
+          <div>${escapeHtml(m.body)}</div>
+          ${m.transcript ? `<div style="font-size:11px; opacity:.7; margin-top: 4px;">transcript: ${escapeHtml(m.transcript)}</div>` : ''}
+          <div class="meta">${m.ai_generated?'🤖 AI · ':''}${fmtDate(m.created_at)}</div>
+        </div>
+      `).join('') || '<div class="empty">No messages.</div>'}
+    </div>
+  `;
+}
+
+(async function() {
+  await renderTopbar('admin');
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    filter = c.dataset.filter; loadConvs();
+  });
+  try {
+    await Promise.all([loadStats(), loadAlerts(), loadUsers(), loadConvs()]);
+    setInterval(() => { loadStats(); loadAlerts(); loadConvs(); }, 20000);
+  } catch (err) { location.href = '/login.html'; }
+})();
+</script>
+</body>
+</html>

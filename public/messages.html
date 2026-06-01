@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Inbox · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container wide">
+  <div style="display:flex; justify-content:space-between; align-items: end; margin-bottom: 14px;">
+    <div>
+      <h1 style="margin: 0 0 4px;">Inbox</h1>
+      <div style="color: var(--muted); font-size: 14px;">All your DMs across every platform.</div>
+    </div>
+    <button class="ghost small" id="markAllRead">Mark notifications read</button>
+  </div>
+  <div class="chips">
+    <div class="chip active" data-filter="">All</div>
+    <div class="chip" data-filter="needs_help">Needs help</div>
+    <div class="chip" data-filter="active">Active</div>
+  </div>
+  <div class="split">
+    <div class="list" id="convList"></div>
+    <div class="thread" id="thread">
+      <div class="header"><strong>Select a conversation</strong></div>
+      <div class="messages"><div class="empty"><div class="big">💬</div>Pick a thread on the left.</div></div>
+    </div>
+  </div>
+</div>
+<script src="/app.js"></script>
+<script>
+let currentId = Number(new URLSearchParams(location.search).get('id')) || null;
+let currentFilter = '';
+let convCache = [];
+
+async function loadList() {
+  const q = currentFilter ? '?filter=' + currentFilter : '';
+  const { conversations } = await api('/api/messages/conversations' + q);
+  convCache = conversations;
+  if (!conversations.length) {
+    document.getElementById('convList').innerHTML = `<div class="empty">No conversations.</div>`;
+    return;
+  }
+  document.getElementById('convList').innerHTML = conversations.map(c => `
+    <div class="item ${c.id===currentId?'active':''}" data-id="${c.id}">
+      ${avatar(c.profile_pic, c.customer_name || c.customer_handle, 40)}
+      <div class="body">
+        <div class="who">
+          <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.customer_name || c.customer_handle || 'unknown')}</span>
+          ${platformIcon(c.platform)}
+          ${c.needs_human ? '<span class="tag bad">help</span>' : ''}
+        </div>
+        <div class="preview">${escapeHtml((c.last_body||'').slice(0,80))}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:3px;">${fmtAgo(c.last_message_at)}</div>
+      </div>
+    </div>
+  `).join('');
+  document.querySelectorAll('#convList .item').forEach(el => {
+    el.onclick = () => openThread(Number(el.dataset.id));
+  });
+}
+
+async function openThread(id) {
+  currentId = id;
+  document.querySelectorAll('#convList .item').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.id) === id);
+  });
+  const { conversation, messages } = await api('/api/messages/conversations/' + id);
+  const thread = document.getElementById('thread');
+  thread.innerHTML = `
+    <div class="header">
+      <div style="display:flex; align-items: center; gap: 12px;">
+        ${avatar(conversation.profile_pic, conversation.customer_name || conversation.customer_handle, 40)}
+        <div>
+          <strong>${escapeHtml(conversation.customer_name || conversation.customer_handle || 'unknown')}</strong>
+          <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">
+            ${platformIcon(conversation.platform)} ${escapeHtml(conversation.customer_handle || '')}
+            ${conversation.needs_human ? '<span class="tag bad">needs help</span>' : ''}
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <label style="display:flex; align-items:center; gap:8px; margin:0; cursor:pointer; font-size: 13px;">
+          AI auto-reply
+          <label class="switch small">
+            <input type="checkbox" id="aiToggle" ${conversation.ai_enabled?'checked':''}>
+            <span class="slider"></span>
+          </label>
+        </label>
+        <button class="small ghost" id="resolveBtn">${conversation.status==='resolved'?'Re-open':'Resolve'}</button>
+      </div>
+    </div>
+    <div class="messages" id="msgs">
+      ${messages.map(m => `
+        <div class="msg ${m.direction}">
+          ${m.media_type==='voice' ? '<div style="font-size:11px; opacity:.8;">🎤 Voice message</div>' : ''}
+          <div>${escapeHtml(m.body)}</div>
+          ${m.transcript ? `<div style="font-size:11px; opacity:.7; margin-top: 4px;">transcript: ${escapeHtml(m.transcript)}</div>` : ''}
+          <div class="meta">${m.ai_generated?'🤖 AI · ':''}${fmtDate(m.created_at)}</div>
+        </div>
+      `).join('') || '<div class="empty">No messages yet.</div>'}
+    </div>
+    <form class="composer" id="composer">
+      <input name="body" placeholder="Type your reply (sends as you, not AI)..." required autocomplete="off" />
+      <button>Send</button>
+    </form>
+  `;
+  const msgs = document.getElementById('msgs');
+  msgs.scrollTop = msgs.scrollHeight;
+  document.getElementById('composer').onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+      await api('/api/messages/conversations/' + id + '/reply', { method: 'POST', body: data });
+      openThread(id);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  document.getElementById('resolveBtn').onclick = async () => {
+    await api('/api/messages/conversations/' + id + '/status', {
+      method: 'POST',
+      body: { status: conversation.status==='resolved'?'active':'resolved', needs_human: false }
+    });
+    openThread(id); loadList();
+  };
+  document.getElementById('aiToggle').onchange = async (e) => {
+    try {
+      await api(`/api/manager/contacts/${id}/ai`, { method: 'POST', body: { enabled: e.target.checked } });
+      toast(`AI ${e.target.checked ? 'on' : 'off'} for this contact.`, 'success');
+    } catch (err) { toast(err.message, 'error'); e.target.checked = !e.target.checked; }
+  };
+}
+
+(async function() {
+  await renderTopbar('messages');
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    currentFilter = c.dataset.filter;
+    loadList();
+  });
+  document.getElementById('markAllRead').onclick = async () => {
+    await api('/api/messages/notifications/read-all', { method: 'POST' });
+    toast('All notifications marked read.', 'success');
+    renderTopbar('messages');
+  };
+  await loadList();
+  if (currentId) openThread(currentId);
+  setInterval(loadList, 15000);
+})();
+</script>
+</body>
+</html>

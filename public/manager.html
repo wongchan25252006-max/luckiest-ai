@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Contacts · Luckiest AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<nav class="topbar" id="topbar"></nav>
+<div class="container wide">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+    <div>
+      <h1 style="margin: 0 0 4px;">Contacts</h1>
+      <div style="color: var(--muted); font-size: 14px;">Toggle AI auto-reply per contact. Click a card to open the conversation.</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="ghost small" id="enableAll">AI on for all</button>
+      <button class="ghost small" id="disableAll">AI off for all</button>
+    </div>
+  </div>
+
+  <div class="chips" id="chips">
+    <div class="chip active" data-filter="all">All</div>
+    <div class="chip" data-filter="ai_on">AI on</div>
+    <div class="chip" data-filter="ai_off">AI off</div>
+    <div class="chip" data-filter="needs_help">Needs help</div>
+    <div class="chip" data-filter="facebook">Facebook</div>
+    <div class="chip" data-filter="instagram">Instagram</div>
+    <div class="chip" data-filter="whatsapp">WhatsApp</div>
+    <div class="chip" data-filter="telegram">Telegram</div>
+  </div>
+
+  <div id="grid" class="contact-grid"></div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+let all = [];
+let filter = 'all';
+
+function render() {
+  const filtered = all.filter(c => {
+    if (filter === 'all') return true;
+    if (filter === 'ai_on') return c.ai_enabled;
+    if (filter === 'ai_off') return !c.ai_enabled;
+    if (filter === 'needs_help') return c.needs_human;
+    return c.platform === filter;
+  });
+
+  const grid = document.getElementById('grid');
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column: 1/-1;"><div class="big">📭</div>No contacts match this filter yet.</div>`;
+    return;
+  }
+  grid.innerHTML = filtered.map(c => `
+    <div class="contact-card">
+      <div class="row1">
+        ${avatar(c.profile_pic, c.customer_name || c.customer_handle, 50)}
+        <div class="info">
+          <div class="name">${escapeHtml(c.customer_name || c.customer_handle || 'Unknown')}</div>
+          <div class="handle">${escapeHtml(c.customer_handle || '—')} · ${fmtAgo(c.last_message_at)}</div>
+        </div>
+        ${platformIcon(c.platform)}
+      </div>
+      <div class="last">${c.last_direction === 'outbound' ? 'You: ' : ''}${escapeHtml((c.last_body || '').slice(0, 110))}</div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+        ${c.needs_human ? '<span class="tag bad">needs help</span>' : ''}
+        ${c.status === 'resolved' ? '<span class="tag good">resolved</span>' : ''}
+        ${!c.ai_enabled ? '<span class="tag warn">AI off</span>' : '<span class="tag accent">AI on</span>'}
+      </div>
+      <div class="actions">
+        <label style="display:flex; align-items:center; gap:8px; margin:0; cursor:pointer;">
+          <span style="font-size: 13px; color: var(--text-2);">AI reply</span>
+          <label class="switch small">
+            <input type="checkbox" data-id="${c.id}" ${c.ai_enabled?'checked':''}>
+            <span class="slider"></span>
+          </label>
+        </label>
+        <a class="btn ghost small" href="/messages.html?id=${c.id}">Open →</a>
+      </div>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('input[type=checkbox][data-id]').forEach(cb => {
+    cb.onchange = async () => {
+      try {
+        await api(`/api/manager/contacts/${cb.dataset.id}/ai`, { method: 'POST', body: { enabled: cb.checked } });
+        const c = all.find(x => x.id === Number(cb.dataset.id));
+        if (c) c.ai_enabled = cb.checked ? 1 : 0;
+        toast(`AI ${cb.checked ? 'enabled' : 'disabled'} for this contact.`, 'success');
+        render();
+      } catch (err) { toast(err.message, 'error'); cb.checked = !cb.checked; }
+    };
+  });
+}
+
+async function load() {
+  try {
+    all = (await api('/api/manager/contacts')).contacts || [];
+    render();
+  } catch (err) { location.href = '/login.html'; }
+}
+
+(async function() {
+  await renderTopbar('manager');
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    filter = c.dataset.filter;
+    render();
+  });
+  document.getElementById('enableAll').onclick = async () => {
+    if (!confirm('Turn AI on for ALL contacts?')) return;
+    await api('/api/manager/contacts/bulk-ai', { method: 'POST', body: { enabled: true } });
+    toast('AI enabled for everyone.', 'success'); load();
+  };
+  document.getElementById('disableAll').onclick = async () => {
+    if (!confirm('Turn AI off for ALL contacts? You will need to reply manually.')) return;
+    await api('/api/manager/contacts/bulk-ai', { method: 'POST', body: { enabled: false } });
+    toast('AI disabled for everyone.', 'success'); load();
+  };
+  load();
+  setInterval(load, 20000);
+})();
+</script>
+</body>
+</html>
