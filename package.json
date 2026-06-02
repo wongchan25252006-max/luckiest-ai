@@ -4,11 +4,12 @@
   "description": "AI-powered social media management for Facebook, Instagram, WhatsApp and Telegram",
   "main": "server.js",
   "engines": {
-    "node": ">=20.0.0"
+    "node": "20.x"
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build": "npm install --ignore-scripts && npm rebuild sqlite3"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
