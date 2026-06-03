@@ -1,31 +1,33 @@
-const sqlite3 = require('sqlite3').verbose();
+require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
 const path = require('path');
-const fs = require('fs');
-const bcrypt = require('bcryptjs');
+const { db, seedAdmin, ensureSubscription } = require('./database');
 
-const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const app = express();
+const isProd = process.env.NODE_ENV === 'production';
 
-const db = new sqlite3.Database(path.join(dataDir, 'luckiest.db'));
+if (isProd) app.set('trust proxy', 1);
 
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    full_name TEXT,
-    role TEXT NOT NULL DEFAULT 'user',
-    created_at INTEGER NOT NULL
-  )`);
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: isProd }
+}));
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+seedAdmin();
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-function seedAdmin() {
-  const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'ChangeMe!2026', 10);
-  db.run(`INSERT OR IGNORE INTO users (email, password_hash, full_name, role, created_at)
-    VALUES (?, ?, 'Admin', 'admin', ?)`,
-    [process.env.ADMIN_EMAIL || 'admin@luckiest.ai', hash, Date.now()]);
-}
-
-function ensureSubscription() {}
-
-module.exports = { db, seedAdmin, ensureSubscription };
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Luckiest-AI running on port ${PORT}`);
+  console.log(`Admin: ${process.env.ADMIN_EMAIL || 'admin@luckiest.ai'}`);
+});
