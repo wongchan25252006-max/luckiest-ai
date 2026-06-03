@@ -1,31 +1,15 @@
-const sqlite3 = require('sqlite3').verbose();
+﻿require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
 const path = require('path');
-const fs = require('fs');
-const bcrypt = require('bcryptjs');
-
-const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const db = new sqlite3.Database(path.join(dataDir, 'luckiest.db'), (err) => {
-  if (err) console.error('Database error:', err);
-  else console.log('Database connected');
-});
-
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    full_name TEXT,
-    role TEXT NOT NULL DEFAULT 'user',
-    created_at INTEGER NOT NULL
-  )`);
-});
-
-function seedAdmin() {
-  const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'ChangeMe!2026', 10);
-  db.run(`INSERT OR IGNORE INTO users (email, password_hash, full_name, role, created_at) VALUES (?, ?, 'Admin', 'admin', ?)`,
-    [process.env.ADMIN_EMAIL || 'admin@luckiest.ai', hash, Date.now()]);
-}
-
-module.exports = { db, seedAdmin };
+const { db, seedAdmin } = require('./database');
+const app = express();
+app.set('trust proxy', 1);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(session({ secret: process.env.SESSION_SECRET || 'change-me', resave: false, saveUninitialized: false }));
+app.use(express.static(path.join(__dirname, 'public')));
+seedAdmin();
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Luckiest-AI running on port ' + PORT));
