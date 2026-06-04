@@ -1,5 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
-const { db } = require('../database');
+const { query } = require('../database');
 
 const client = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -50,13 +50,16 @@ async function generateReply({ userId, conversationId, incomingMessage, customer
     return { reply: '[AI offline — set ANTHROPIC_API_KEY]', needs_human: true, reason: 'AI not configured' };
   }
 
-  const user = db.prepare('SELECT id, email, full_name FROM users WHERE id = ?').get(userId);
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(userId);
+  const uR = await query('SELECT id, email, full_name FROM users WHERE id = $1', [userId]);
+  const user = uR.rows[0];
+  const pR = await query('SELECT * FROM profiles WHERE user_id = $1', [userId]);
+  const profile = pR.rows[0];
 
-  const history = db.prepare(
-    `SELECT direction, body FROM messages WHERE conversation_id = ?
-     ORDER BY id DESC LIMIT 12`
-  ).all(conversationId).reverse();
+  const hR = await query(
+    `SELECT direction, body FROM messages WHERE conversation_id = $1 ORDER BY id DESC LIMIT 12`,
+    [conversationId]
+  );
+  const history = hR.rows.reverse();
 
   const messages = history.map(m => ({
     role: m.direction === 'inbound' ? 'user' : 'assistant',
@@ -92,8 +95,10 @@ async function generateReply({ userId, conversationId, incomingMessage, customer
 
 async function generateCaption({ userId, prompt }) {
   if (!client) return prompt || '';
-  const user = db.prepare('SELECT id, email, full_name FROM users WHERE id = ?').get(userId);
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(userId);
+  const uR = await query('SELECT id, email, full_name FROM users WHERE id = $1', [userId]);
+  const user = uR.rows[0];
+  const pR = await query('SELECT * FROM profiles WHERE user_id = $1', [userId]);
+  const profile = pR.rows[0];
   try {
     const resp = await client.messages.create({
       model: MODEL,

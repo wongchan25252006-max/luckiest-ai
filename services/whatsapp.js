@@ -1,15 +1,17 @@
-const { db } = require('../database');
+const { query } = require('../database');
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
-function getConnection(userId) {
-  return db.prepare(
-    `SELECT * FROM platform_connections WHERE user_id = ? AND platform = 'whatsapp' AND active = 1 LIMIT 1`
-  ).get(userId);
+async function getConnection(userId) {
+  const r = await query(
+    `SELECT * FROM platform_connections WHERE user_id = $1 AND platform = 'whatsapp' AND active = 1 LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0];
 }
 
-function tokenFor(userId) {
-  const conn = getConnection(userId);
+async function tokenFor(userId) {
+  const conn = await getConnection(userId);
   return {
     phoneId: conn?.account_id || process.env.WHATSAPP_PHONE_NUMBER_ID,
     token: conn?.access_token || process.env.WHATSAPP_TOKEN
@@ -17,7 +19,7 @@ function tokenFor(userId) {
 }
 
 async function sendMessage({ userId, externalId, body }) {
-  const { phoneId, token } = tokenFor(userId);
+  const { phoneId, token } = await tokenFor(userId);
   if (!phoneId || !token) throw new Error('WhatsApp not configured');
   const res = await fetch(`${GRAPH}/${phoneId}/messages`, {
     method: 'POST',
@@ -30,7 +32,7 @@ async function sendMessage({ userId, externalId, body }) {
 }
 
 async function downloadMedia({ userId, mediaId }) {
-  const { token } = tokenFor(userId);
+  const { token } = await tokenFor(userId);
   if (!token) throw new Error('WhatsApp not configured');
   const meta = await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!meta.ok) throw new Error('media metadata failed');

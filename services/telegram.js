@@ -1,17 +1,23 @@
-const { db } = require('../database');
+const { query } = require('../database');
 const TelegramBot = require('node-telegram-bot-api');
 const { transcribe } = require('./transcription');
 
 const bots = new Map();
 
-function getConnection(userId) {
-  return db.prepare(
-    `SELECT * FROM platform_connections WHERE user_id = ? AND platform = 'telegram' AND active = 1 LIMIT 1`
-  ).get(userId);
+async function getConnection(userId) {
+  const r = await query(
+    `SELECT * FROM platform_connections WHERE user_id = $1 AND platform = 'telegram' AND active = 1 LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0];
 }
 
-function getBot(userId, token) {
-  const t = token || getConnection(userId)?.access_token;
+async function getBot(userId, token) {
+  let t = token;
+  if (!t) {
+    const conn = await getConnection(userId);
+    t = conn?.access_token;
+  }
   if (!t) return null;
   if (bots.has(t)) return bots.get(t);
   const bot = new TelegramBot(t, { polling: false });
@@ -81,23 +87,23 @@ function startPollingForConnection(conn, onMessage) {
 }
 
 async function sendMessage({ userId, externalId, body }) {
-  const bot = getBot(userId);
+  const bot = await getBot(userId);
   if (!bot) throw new Error('No Telegram bot connected');
   await bot.sendMessage(externalId, body);
 }
 
 async function sendVoice({ userId, externalId, audioBuffer }) {
-  const bot = getBot(userId);
+  const bot = await getBot(userId);
   if (!bot) throw new Error('No Telegram bot connected');
   await bot.sendVoice(externalId, audioBuffer);
 }
 
 async function publishPost({ userId, caption, imagePath, videoPath }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Telegram bot connected');
   const channelId = conn.extra ? JSON.parse(conn.extra).channel_id : null;
   if (!channelId) throw new Error('Set a Telegram channel_id in the connection extras');
-  const bot = getBot(userId, conn.access_token);
+  const bot = await getBot(userId, conn.access_token);
   if (videoPath) {
     await bot.sendVideo(channelId, videoPath, { caption });
   } else if (imagePath) {
@@ -107,11 +113,11 @@ async function publishPost({ userId, caption, imagePath, videoPath }) {
   }
 }
 
-function bootstrapAll(onMessage) {
-  const conns = db.prepare(
+async function bootstrapAll(onMessage) {
+  const r = await query(
     `SELECT * FROM platform_connections WHERE platform = 'telegram' AND active = 1`
-  ).all();
-  for (const c of conns) {
+  );
+  for (const c of r.rows) {
     try { startPollingForConnection(c, onMessage); }
     catch (e) { console.error('[telegram] bootstrap failed', e.message); }
   }

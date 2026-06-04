@@ -1,15 +1,17 @@
-const { db } = require('../database');
+const { query } = require('../database');
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
-function getConnection(userId) {
-  return db.prepare(
-    `SELECT * FROM platform_connections WHERE user_id = ? AND platform = 'instagram' AND active = 1 LIMIT 1`
-  ).get(userId);
+async function getConnection(userId) {
+  const r = await query(
+    `SELECT * FROM platform_connections WHERE user_id = $1 AND platform = 'instagram' AND active = 1 LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0];
 }
 
 async function sendMessage({ userId, externalId, body }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Instagram connection');
   const res = await fetch(`${GRAPH}/me/messages?access_token=${encodeURIComponent(conn.access_token)}`, {
     method: 'POST',
@@ -23,7 +25,7 @@ async function sendMessage({ userId, externalId, body }) {
 }
 
 async function publishPost({ userId, caption, imageUrl }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Instagram connection');
   if (!imageUrl) throw new Error('Instagram posts require an image');
   const igId = conn.account_id;
@@ -47,7 +49,7 @@ async function publishPost({ userId, caption, imageUrl }) {
 }
 
 async function replyToComment({ userId, commentId, body }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Instagram connection');
   const res = await fetch(`${GRAPH}/${commentId}/replies`, {
     method: 'POST',

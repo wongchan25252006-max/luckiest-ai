@@ -1,20 +1,24 @@
-const { db } = require('../database');
+const { query } = require('../database');
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
-function getConnection(userId, accountId = null) {
+async function getConnection(userId, accountId = null) {
   if (accountId) {
-    return db.prepare(
-      `SELECT * FROM platform_connections WHERE user_id = ? AND platform = 'facebook' AND account_id = ? AND active = 1`
-    ).get(userId, accountId);
+    const r = await query(
+      `SELECT * FROM platform_connections WHERE user_id = $1 AND platform = 'facebook' AND account_id = $2 AND active = 1`,
+      [userId, accountId]
+    );
+    return r.rows[0];
   }
-  return db.prepare(
-    `SELECT * FROM platform_connections WHERE user_id = ? AND platform = 'facebook' AND active = 1 LIMIT 1`
-  ).get(userId);
+  const r = await query(
+    `SELECT * FROM platform_connections WHERE user_id = $1 AND platform = 'facebook' AND active = 1 LIMIT 1`,
+    [userId]
+  );
+  return r.rows[0];
 }
 
 async function sendMessage({ userId, externalId, body }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Facebook connection');
   const res = await fetch(`${GRAPH}/me/messages?access_token=${encodeURIComponent(conn.access_token)}`, {
     method: 'POST',
@@ -29,7 +33,7 @@ async function sendMessage({ userId, externalId, body }) {
 }
 
 async function publishPost({ userId, caption, imageUrl }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Facebook page connected');
   const endpoint = imageUrl ? `${GRAPH}/${conn.account_id}/photos` : `${GRAPH}/${conn.account_id}/feed`;
   const payload = imageUrl
@@ -45,7 +49,7 @@ async function publishPost({ userId, caption, imageUrl }) {
 }
 
 async function replyToComment({ userId, commentId, body }) {
-  const conn = getConnection(userId);
+  const conn = await getConnection(userId);
   if (!conn) throw new Error('No Facebook connection');
   const res = await fetch(`${GRAPH}/${commentId}/comments`, {
     method: 'POST',

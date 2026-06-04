@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const path = require('path');
-const { db } = require('../database');
+const { query } = require('../database');
 
 const uploadDir = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
 const facebook = require('./facebook');
@@ -16,12 +16,14 @@ const publishers = {
 
 async function processDuePosts() {
   const now = Date.now();
-  const due = db.prepare(
-    `SELECT * FROM scheduled_posts WHERE status = 'pending' AND scheduled_for <= ? LIMIT 25`
-  ).all(now);
+  const dueR = await query(
+    `SELECT * FROM scheduled_posts WHERE status = 'pending' AND scheduled_for <= $1 LIMIT 25`,
+    [now]
+  );
+  const due = dueR.rows;
 
   for (const post of due) {
-    db.prepare(`UPDATE scheduled_posts SET status = 'processing' WHERE id = ?`).run(post.id);
+    await query(`UPDATE scheduled_posts SET status = 'processing' WHERE id = $1`, [post.id]);
     const platforms = JSON.parse(post.platforms || '[]');
     const errors = [];
     const localPath = post.media_path ? path.join(uploadDir, path.basename(post.media_path)) : null;
@@ -49,16 +51,17 @@ async function processDuePosts() {
     }
 
     if (errors.length === platforms.length) {
-      db.prepare(`UPDATE scheduled_posts SET status = 'failed', error = ? WHERE id = ?`)
-        .run(errors.join(' | '), post.id);
-      notify({
+      await query(`UPDATE scheduled_posts SET status = 'failed', error = $1 WHERE id = $2`, [errors.join(' | '), post.id]);
+      await notify({
         userId: post.user_id, type: 'post_failed',
         title: `Scheduled post failed`, body: errors.join('\n')
       });
     } else {
-      db.prepare(`UPDATE scheduled_posts SET status = ?, posted_at = ?, error = ? WHERE id = ?`)
-        .run(errors.length ? 'partial' : 'posted', Date.now(), errors.join(' | ') || null, post.id);
-      notify({
+      await query(
+        `UPDATE scheduled_posts SET status = $1, posted_at = $2, error = $3 WHERE id = $4`,
+        [errors.length ? 'partial' : 'posted', Date.now(), errors.join(' | ') || null, post.id]
+      );
+      await notify({
         userId: post.user_id, type: 'post_published',
         title: `Post published to ${platforms.filter(p => !errors.find(e => e.startsWith(p))).join(', ')}`,
         body: (post.caption || '').slice(0, 200)

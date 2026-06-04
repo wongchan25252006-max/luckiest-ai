@@ -1,4 +1,4 @@
-const { db } = require('../database');
+const { query } = require('../database');
 const { generateReply } = require('./ai');
 const { notify } = require('./notifications');
 const facebook = require('./facebook');
@@ -13,19 +13,22 @@ const senders = {
   telegram: telegram.sendMessage
 };
 
-function findOrCreateConversation({ userId, platform, externalId, customerName, customerHandle, profilePic }) {
-  let conv = db.prepare(
-    'SELECT * FROM conversations WHERE user_id = ? AND platform = ? AND external_id = ?'
-  ).get(userId, platform, externalId);
+async function findOrCreateConversation({ userId, platform, externalId, customerName, customerHandle, profilePic }) {
+  const existing = await query(
+    'SELECT * FROM conversations WHERE user_id = $1 AND platform = $2 AND external_id = $3',
+    [userId, platform, externalId]
+  );
+  let conv = existing.rows[0];
 
   if (!conv) {
-    const info = db.prepare(
+    const ins = await query(
       `INSERT INTO conversations (user_id, platform, external_id, customer_name, customer_handle, profile_pic, last_message_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(userId, platform, externalId, customerName || null, customerHandle || null, profilePic || null, Date.now(), Date.now());
-    conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(info.lastInsertRowid);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [userId, platform, externalId, customerName || null, customerHandle || null, profilePic || null, Date.now(), Date.now()]
+    );
+    conv = ins.rows[0];
 
-    notify({
+    await notify({
       userId,
       conversationId: conv.id,
       type: 'new_contact',
@@ -37,12 +40,13 @@ function findOrCreateConversation({ userId, platform, externalId, customerName, 
 
   const updates = [];
   const params = [];
-  if (customerName && customerName !== conv.customer_name) { updates.push('customer_name = ?'); params.push(customerName); }
-  if (profilePic && profilePic !== conv.profile_pic)       { updates.push('profile_pic = ?');   params.push(profilePic); }
+  if (customerName && customerName !== conv.customer_name) { params.push(customerName); updates.push(`customer_name = $${params.length}`); }
+  if (profilePic && profilePic !== conv.profile_pic) { params.push(profilePic); updates.push(`profile_pic = $${params.length}`); }
   if (updates.length) {
     params.push(conv.id);
-    db.prepare(`UPDATE conversations SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-    conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conv.id);
+    await query(`UPDATE conversations SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+    const r2 = await query('SELECT * FROM conversations WHERE id = $1', [conv.id]);
+    conv = r2.rows[0];
   }
   return { conv, isNew: false };
 }
@@ -54,17 +58,17 @@ async function handleIncomingMessage({
   const effectiveBody = body || transcript || (mediaType ? `[${mediaType} message]` : '');
   if (!effectiveBody.trim() && !mediaType) return;
 
-  const { conv } = findOrCreateConversation({ userId, platform, externalId, customerName, customerHandle, profilePic });
+  const { conv } = await findOrCreateConversation({ userId, platform, externalId, customerName, customerHandle, profilePic });
 
-  db.prepare(
+  await query(
     `INSERT INTO messages (conversation_id, direction, sender, body, media_type, media_url, transcript, ai_generated, external_ref, created_at)
-     VALUES (?, 'inbound', ?, ?, ?, ?, ?, 0, ?, ?)`
-  ).run(conv.id, customerName || customerHandle || 'customer', effectiveBody, mediaType || null, mediaUrl || null, transcript || null, externalRef || null, Date.now());
-
-  db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(Date.now(), conv.id);
+     VALUES ($1, 'inbound', $2, $3, $4, $5, $6, 0, $7, $8)`,
+    [conv.id, customerName || customerHandle || 'customer', effectiveBody, mediaType || null, mediaUrl || null, transcript || null, externalRef || null, Date.now()]
+  );
+  await query('UPDATE conversations SET last_message_at = $1 WHERE id = $2', [Date.now(), conv.id]);
 
   if (!conv.ai_enabled || conv.status === 'human' || conv.status === 'resolved') {
-    notify({
+    await notify({
       userId, conversationId: conv.id, type: 'new_message_off',
       title: `Message from ${customerName || customerHandle || 'customer'} (AI off)`,
       body: effectiveBody.slice(0, 200)
@@ -73,12 +77,11 @@ async function handleIncomingMessage({
   }
 
   if (mediaType === 'voice' && !transcript) {
-    db.prepare('UPDATE conversations SET needs_human = 1, status = ? WHERE id = ?')
-      .run('needs_help', conv.id);
-    notify({
+    await query('UPDATE conversations SET needs_human = 1, status = $1 WHERE id = $2', ['needs_help', conv.id]);
+    await notify({
       userId, conversationId: conv.id, type: 'voice_message',
       title: `Voice message from ${customerName || customerHandle || 'customer'}`,
-      body: `Could not transcribe (no transcription service configured). Listen and reply manually.`
+      body: 'Could not transcribe (no transcription service configured). Listen and reply manually.'
     });
     return;
   }
@@ -89,9 +92,8 @@ async function handleIncomingMessage({
   });
 
   if (needs_human) {
-    db.prepare('UPDATE conversations SET needs_human = 1, status = ? WHERE id = ?')
-      .run('needs_help', conv.id);
-    notify({
+    await query('UPDATE conversations SET needs_human = 1, status = $1 WHERE id = $2', ['needs_help', conv.id]);
+    await notify({
       userId, conversationId: conv.id, type: 'needs_help',
       title: `Customer needs help: ${customerName || customerHandle || 'unknown'}`,
       body: `Reason: ${reason || 'flagged by AI'}\nLast message: ${effectiveBody.slice(0, 200)}`
@@ -102,14 +104,15 @@ async function handleIncomingMessage({
     try {
       const sender = senders[platform];
       if (sender) await sender({ userId, externalId, body: reply, externalRef });
-      db.prepare(
+      await query(
         `INSERT INTO messages (conversation_id, direction, sender, body, ai_generated, created_at)
-         VALUES (?, 'outbound', 'ai', ?, 1, ?)`
-      ).run(conv.id, reply, Date.now());
-      db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(Date.now(), conv.id);
+         VALUES ($1, 'outbound', 'ai', $2, 1, $3)`,
+        [conv.id, reply, Date.now()]
+      );
+      await query('UPDATE conversations SET last_message_at = $1 WHERE id = $2', [Date.now(), conv.id]);
     } catch (err) {
       console.error(`[${platform}] send failed`, err.message);
-      notify({
+      await notify({
         userId, conversationId: conv.id, type: 'send_failed',
         title: `Failed to send AI reply on ${platform}`,
         body: err.message
@@ -119,17 +122,18 @@ async function handleIncomingMessage({
 }
 
 async function handleIncomingComment({ userId, platform, postId, commentId, commenterName, commenterHandle, body }) {
-  const conv = findOrCreateConversation({
+  const { conv } = await findOrCreateConversation({
     userId, platform,
     externalId: `comment:${postId}:${commenterHandle || commentId}`,
     customerName: commenterName, customerHandle: commenterHandle
-  }).conv;
+  });
 
-  db.prepare(
+  await query(
     `INSERT INTO messages (conversation_id, direction, sender, body, ai_generated, external_ref, created_at)
-     VALUES (?, 'inbound', ?, ?, 0, ?, ?)`
-  ).run(conv.id, commenterName || commenterHandle || 'commenter', body, commentId, Date.now());
-  db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(Date.now(), conv.id);
+     VALUES ($1, 'inbound', $2, $3, 0, $4, $5)`,
+    [conv.id, commenterName || commenterHandle || 'commenter', body, commentId, Date.now()]
+  );
+  await query('UPDATE conversations SET last_message_at = $1 WHERE id = $2', [Date.now(), conv.id]);
 
   if (!conv.ai_enabled) return;
 
@@ -139,8 +143,8 @@ async function handleIncomingComment({ userId, platform, postId, commentId, comm
   });
 
   if (needs_human) {
-    db.prepare('UPDATE conversations SET needs_human = 1, status = ? WHERE id = ?').run('needs_help', conv.id);
-    notify({
+    await query('UPDATE conversations SET needs_human = 1, status = $1 WHERE id = $2', ['needs_help', conv.id]);
+    await notify({
       userId, conversationId: conv.id, type: 'comment_needs_help',
       title: `Comment needs your attention from ${commenterName || commenterHandle}`,
       body: `Reason: ${reason || 'flagged'}\nComment: ${body.slice(0, 200)}`
@@ -154,13 +158,14 @@ async function handleIncomingComment({ userId, platform, postId, commentId, comm
       } else if (platform === 'facebook') {
         await facebook.replyToComment({ userId, commentId, body: reply });
       }
-      db.prepare(
+      await query(
         `INSERT INTO messages (conversation_id, direction, sender, body, ai_generated, external_ref, created_at)
-         VALUES (?, 'outbound', 'ai', ?, 1, ?, ?)`
-      ).run(conv.id, reply, commentId, Date.now());
+         VALUES ($1, 'outbound', 'ai', $2, 1, $3, $4)`,
+        [conv.id, reply, commentId, Date.now()]
+      );
     } catch (err) {
       console.error(`[${platform}] comment reply failed`, err.message);
-      notify({
+      await notify({
         userId, conversationId: conv.id, type: 'send_failed',
         title: `Failed to reply to comment on ${platform}`,
         body: err.message
