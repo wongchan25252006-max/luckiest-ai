@@ -50,12 +50,20 @@ const PORT = process.env.PORT || 3000;
     await initializeDatabase();
     app.listen(PORT, () => console.log('Luckiest-AI running on port ' + PORT));
 
+    const { handleIncomingMessage } = require('./services/messaging');
+
     try {
-      const { handleIncomingMessage } = require('./services/messaging');
       const telegram = require('./services/telegram');
       await telegram.bootstrapAll(handleIncomingMessage);
     } catch (err) {
       console.error('[telegram] bootstrap failed:', err.message);
+    }
+
+    try {
+      const baileys = require('./services/whatsapp_baileys');
+      await baileys.bootstrapAll(handleIncomingMessage);
+    } catch (err) {
+      console.error('[baileys] bootstrap failed:', err.message);
     }
 
     try {

@@ -45,7 +45,7 @@ function initials(name) {
   return name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 }
 
-const PLATFORM_GLYPHS = { facebook: 'f', instagram: 'IG', whatsapp: 'W', telegram: 'T' };
+const PLATFORM_GLYPHS = { facebook: 'f', instagram: 'IG', whatsapp: 'W', whatsapp_baileys: 'W', telegram: 'T' };
 function platformIcon(p) {
   return `<span class="platform-icon ${p}" title="${p}">${PLATFORM_GLYPHS[p] || '?'}</span>`;
 }

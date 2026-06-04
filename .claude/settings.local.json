@@ -12,7 +12,11 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:39871/login.html)",
       "Bash(npm uninstall *)",
       "Bash(node -e \"const r=require\\('./routes/auth'\\); const routes=r.stack.filter\\(l=>l.route\\).map\\(l=>Object.keys\\(l.route.methods\\).join\\(','\\).toUpperCase\\(\\)+' '+l.route.path\\); console.log\\(routes.join\\('\\\\n'\\)\\);\")",
-      "Bash(node -e \"for \\(const m of ['./services/notifications','./services/messaging','./services/ai','./services/facebook','./services/instagram','./services/whatsapp','./services/telegram','./services/scheduler','./services/transcription']\\) { try { require\\(m\\); console.log\\('OK', m\\); } catch \\(e\\) { console.log\\('FAIL', m, e.message\\); } }\")"
+      "Bash(node -e \"for \\(const m of ['./services/notifications','./services/messaging','./services/ai','./services/facebook','./services/instagram','./services/whatsapp','./services/telegram','./services/scheduler','./services/transcription']\\) { try { require\\(m\\); console.log\\('OK', m\\); } catch \\(e\\) { console.log\\('FAIL', m, e.message\\); } }\")",
+      "Bash(curl -si https://luckiest-ai.onrender.com/healthz)",
+      "Bash(curl -si -X POST https://luckiest-ai.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"nobody@test\",\"password\":\"wrong\"}')",
+      "Bash(node -e \"const b = require\\('@whiskeysockets/baileys'\\); console.log\\('exports:', Object.keys\\(b\\).slice\\(0,20\\).join\\(', '\\)\\); console.log\\('default type:', typeof b.default\\); console.log\\('useMultiFileAuthState:', typeof b.useMultiFileAuthState\\); console.log\\('fetchLatestBaileysVersion:', typeof b.fetchLatestBaileysVersion\\); console.log\\('DisconnectReason:', typeof b.DisconnectReason\\);\")",
+      "Bash(node -e \"for \\(const m of ['./services/whatsapp_baileys','./services/messaging','./routes/platforms','./routes/messages']\\) { try { require\\(m\\); console.log\\('OK', m\\); } catch \\(e\\) { console.log\\('FAIL', m, e.message\\); } }\")"
     ]
   }
 }

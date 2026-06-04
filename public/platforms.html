@@ -10,6 +10,17 @@
 <nav class="topbar" id="topbar"></nav>
 <div class="container">
   <div class="card">
+    <h2>📱 WhatsApp via QR (Baileys)</h2>
+    <p class="subtitle">Scan a QR code with WhatsApp on your phone to link your personal/business number. No tokens, no Meta approval — just scan.</p>
+    <div style="background: rgba(255, 180, 0, 0.08); border: 1px solid rgba(255, 180, 0, 0.35); padding: 12px 14px; border-radius: 8px; margin: 12px 0 18px; font-size: 13px; line-height: 1.5;">
+      ⚠️ <strong>Disclaimer:</strong> Using your personal WhatsApp here may risk account ban by Meta if abused. For high-volume business use, the official <em>WhatsApp Cloud API</em> (form below) is recommended.
+    </div>
+    <div id="wa-qr-area">
+      <button id="wa-start" type="button">Generate QR code →</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Connect a platform</h2>
     <p class="subtitle">Paste access tokens. Webhook URLs are shown below — register them in Meta / WhatsApp Business Manager.</p>
     <form id="form">
@@ -88,6 +99,72 @@
       });
     } catch (err) { location.href = '/login.html'; }
   }
+
+  let waPollTimer = null;
+  function setWaArea(html) { document.getElementById('wa-qr-area').innerHTML = html; }
+
+  async function pollWaQr(id) {
+    try {
+      const s = await api('/api/platforms/whatsapp-baileys/' + id + '/qr');
+      if (s.status === 'qr' && s.qr) {
+        setWaArea(`
+          <div style="text-align:center;">
+            <img src="${s.qr}" alt="WhatsApp QR" style="width: 260px; height: 260px; background: #fff; padding: 10px; border-radius: 12px;" />
+            <p style="margin: 14px 0 6px; color: var(--text-2); font-size: 13px;">Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong> → scan this code.</p>
+            <p style="color: var(--muted); font-size: 12px;">QR refreshes every ~20s automatically.</p>
+            <button type="button" id="wa-cancel" class="small danger" style="margin-top: 10px;">Cancel</button>
+          </div>
+        `);
+        document.getElementById('wa-cancel').onclick = async () => {
+          clearInterval(waPollTimer);
+          try { await api('/api/platforms/whatsapp-baileys/' + id + '/logout', { method: 'POST' }); } catch {}
+          setWaArea(`<button id="wa-start" type="button">Generate QR code →</button>`);
+          attachWaStart();
+          load();
+        };
+      } else if (s.status === 'connected') {
+        clearInterval(waPollTimer);
+        setWaArea(`
+          <div style="text-align:center; padding: 20px;">
+            <div style="font-size: 42px;">✅</div>
+            <p style="margin: 12px 0;"><strong>Connected as +${s.phone || '—'}</strong></p>
+            <p style="color: var(--muted); font-size: 13px;">AI will now reply to incoming WhatsApp messages.</p>
+          </div>
+        `);
+        toast('WhatsApp connected!', 'success');
+        load();
+        setTimeout(() => { setWaArea(`<button id="wa-start" type="button">Generate QR code →</button>`); attachWaStart(); }, 4000);
+      } else if (s.status === 'logged_out' || s.status === 'disconnected' || s.status === 'inactive') {
+        clearInterval(waPollTimer);
+        setWaArea(`<p style="color: var(--text-2);">Session ended (${s.status}). <button id="wa-start" type="button" class="small">Try again</button></p>`);
+        attachWaStart();
+      }
+    } catch (err) {
+      clearInterval(waPollTimer);
+      setWaArea(`<p style="color: var(--danger);">${err.message} <button id="wa-start" type="button" class="small">Retry</button></p>`);
+      attachWaStart();
+    }
+  }
+
+  function attachWaStart() {
+    const btn = document.getElementById('wa-start');
+    if (!btn) return;
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'Starting…';
+      try {
+        const r = await api('/api/platforms/whatsapp-baileys/start', { method: 'POST', body: {} });
+        setWaArea(`<p style="color: var(--text-2);">Waiting for QR code…</p>`);
+        clearInterval(waPollTimer);
+        waPollTimer = setInterval(() => pollWaQr(r.id), 2000);
+        pollWaQr(r.id);
+      } catch (err) {
+        toast(err.message, 'error');
+        setWaArea(`<button id="wa-start" type="button">Generate QR code →</button>`);
+        attachWaStart();
+      }
+    };
+  }
+  attachWaStart();
 
   document.getElementById('form').onsubmit = async (e) => {
     e.preventDefault();

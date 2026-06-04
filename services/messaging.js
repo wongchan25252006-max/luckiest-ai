@@ -5,11 +5,13 @@ const facebook = require('./facebook');
 const instagram = require('./instagram');
 const whatsapp = require('./whatsapp');
 const telegram = require('./telegram');
+const whatsappBaileys = require('./whatsapp_baileys');
 
 const senders = {
   facebook: facebook.sendMessage,
   instagram: instagram.sendMessage,
   whatsapp: whatsapp.sendMessage,
+  whatsapp_baileys: whatsappBaileys.sendMessage,
   telegram: telegram.sendMessage
 };
 
