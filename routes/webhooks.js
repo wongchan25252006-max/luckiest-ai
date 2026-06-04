@@ -1,24 +1,26 @@
 const express = require('express');
-const { db } = require('../database');
+const { query } = require('../database');
 const { handleIncomingMessage, handleIncomingComment } = require('../services/messaging');
 const whatsapp = require('../services/whatsapp');
 const { transcribe } = require('../services/transcription');
 
 const router = express.Router();
 
-function findUserForPage(pageId) {
-  const conn = db.prepare(
+async function findUserForPage(pageId) {
+  const r = await query(
     `SELECT user_id FROM platform_connections
-     WHERE platform IN ('facebook', 'instagram') AND account_id = ? AND active = 1`
-  ).get(pageId);
-  return conn?.user_id;
+     WHERE platform IN ('facebook', 'instagram') AND account_id = $1 AND active = 1`,
+    [pageId]
+  );
+  return r.rows[0]?.user_id;
 }
 
-function findUserForWhatsApp(phoneNumberId) {
-  const conn = db.prepare(
-    `SELECT user_id FROM platform_connections WHERE platform = 'whatsapp' AND account_id = ? AND active = 1`
-  ).get(phoneNumberId);
-  return conn?.user_id;
+async function findUserForWhatsApp(phoneNumberId) {
+  const r = await query(
+    `SELECT user_id FROM platform_connections WHERE platform = 'whatsapp' AND account_id = $1 AND active = 1`,
+    [phoneNumberId]
+  );
+  return r.rows[0]?.user_id;
 }
 
 router.get('/meta', (req, res) => {
@@ -35,7 +37,7 @@ router.post('/meta', async (req, res) => {
   try {
     for (const entry of body.entry || []) {
       const pageId = entry.id;
-      const userId = findUserForPage(pageId);
+      const userId = await findUserForPage(pageId);
       if (!userId) continue;
       const platform = body.object === 'instagram' ? 'instagram' : 'facebook';
 
@@ -87,7 +89,7 @@ router.post('/whatsapp', async (req, res) => {
       for (const change of entry.changes || []) {
         const value = change.value || {};
         const phoneNumberId = value.metadata?.phone_number_id;
-        const userId = findUserForWhatsApp(phoneNumberId);
+        const userId = await findUserForWhatsApp(phoneNumberId);
         if (!userId) continue;
         for (const msg of value.messages || []) {
           const profile = value.contacts?.[0]?.profile?.name;

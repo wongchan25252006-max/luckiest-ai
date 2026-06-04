@@ -1,6 +1,6 @@
 const express = require('express');
-const { db, ensureSubscription } = require('../database');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { query, ensureSubscription } = require('../database');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -13,28 +13,42 @@ const PLANS = {
 
 router.get('/plans', (req, res) => res.json({ plans: PLANS }));
 
-router.get('/me', requireAuth, (req, res) => {
-  ensureSubscription(req.session.userId);
-  const sub = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(req.session.userId);
-  res.json({ subscription: sub, plan: PLANS[sub.plan] || PLANS.free });
+router.get('/me', requireAuth, async (req, res) => {
+  try {
+    await ensureSubscription(req.session.userId);
+    const r = await query('SELECT * FROM subscriptions WHERE user_id = $1', [req.session.userId]);
+    const sub = r.rows[0];
+    res.json({ subscription: sub, plan: PLANS[sub.plan] || PLANS.free });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/subscribe', requireAuth, (req, res) => {
-  const { plan } = req.body || {};
-  if (!PLANS[plan]) return res.status(400).json({ error: 'invalid plan' });
-  ensureSubscription(req.session.userId);
-  db.prepare(
-    `UPDATE subscriptions SET plan = ?, status = 'active', amount_monthly = ?,
-       started_at = COALESCE(started_at, ?),
-       current_period_end = ?
-     WHERE user_id = ?`
-  ).run(plan, PLANS[plan].monthly, Date.now(), Date.now() + 30 * 86400_000, req.session.userId);
-  res.json({ ok: true });
+router.post('/subscribe', requireAuth, async (req, res) => {
+  try {
+    const { plan } = req.body || {};
+    if (!PLANS[plan]) return res.status(400).json({ error: 'invalid plan' });
+    await ensureSubscription(req.session.userId);
+    await query(
+      `UPDATE subscriptions SET plan = $1, status = 'active', amount_monthly = $2,
+         started_at = COALESCE(started_at, $3),
+         current_period_end = $4
+       WHERE user_id = $5`,
+      [plan, PLANS[plan].monthly, Date.now(), Date.now() + 30 * 86400000, req.session.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/cancel', requireAuth, (req, res) => {
-  db.prepare(`UPDATE subscriptions SET status = 'canceled' WHERE user_id = ?`).run(req.session.userId);
-  res.json({ ok: true });
+router.post('/cancel', requireAuth, async (req, res) => {
+  try {
+    await query(`UPDATE subscriptions SET status = 'canceled' WHERE user_id = $1`, [req.session.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

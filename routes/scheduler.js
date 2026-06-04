@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { db } = require('../database');
+const { query } = require('../database');
 const { requireAuth } = require('../middleware/auth');
 const { generateCaption } = require('../services/ai');
 
@@ -24,11 +24,16 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /^(image|video)\//.test(file.mimetype))
 });
 
-router.get('/', requireAuth, (req, res) => {
-  const rows = db.prepare(
-    `SELECT * FROM scheduled_posts WHERE user_id = ? ORDER BY scheduled_for DESC LIMIT 200`
-  ).all(req.session.userId);
-  res.json({ posts: rows.map(r => ({ ...r, platforms: JSON.parse(r.platforms || '[]') })) });
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM scheduled_posts WHERE user_id = $1 ORDER BY scheduled_for DESC LIMIT 200`,
+      [req.session.userId]
+    );
+    res.json({ posts: r.rows.map(p => ({ ...p, platforms: JSON.parse(p.platforms || '[]') })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/', requireAuth, upload.single('media'), async (req, res) => {
@@ -57,31 +62,40 @@ router.post('/', requireAuth, upload.single('media'), async (req, res) => {
     const mediaPath = req.file ? `uploads/${req.file.filename}` : null;
     const mediaType = req.file ? (/^video/.test(req.file.mimetype) ? 'video' : 'image') : null;
 
-    const info = db.prepare(
+    const r = await query(
       `INSERT INTO scheduled_posts (user_id, platforms, caption, media_path, media_type, scheduled_for, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
-    ).run(req.session.userId, JSON.stringify(platformsArr), finalCaption, mediaPath, mediaType, when, Date.now());
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7) RETURNING id`,
+      [req.session.userId, JSON.stringify(platformsArr), finalCaption, mediaPath, mediaType, when, Date.now()]
+    );
 
-    res.json({ ok: true, id: info.lastInsertRowid, caption: finalCaption });
+    res.json({ ok: true, id: r.rows[0].id, caption: finalCaption });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 router.post('/caption', requireAuth, async (req, res) => {
-  const caption = await generateCaption({ userId: req.session.userId, prompt: req.body?.prompt });
-  res.json({ caption });
+  try {
+    const caption = await generateCaption({ userId: req.session.userId, prompt: req.body?.prompt });
+    res.json({ caption });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.delete('/:id', requireAuth, (req, res) => {
-  const post = db.prepare('SELECT * FROM scheduled_posts WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.session.userId);
-  if (!post) return res.status(404).json({ error: 'not found' });
-  if (post.media_path) {
-    try { fs.unlinkSync(path.join(uploadDir, path.basename(post.media_path))); } catch {}
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await query('SELECT * FROM scheduled_posts WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    const post = r.rows[0];
+    if (!post) return res.status(404).json({ error: 'not found' });
+    if (post.media_path) {
+      try { fs.unlinkSync(path.join(uploadDir, path.basename(post.media_path))); } catch {}
+    }
+    await query('DELETE FROM scheduled_posts WHERE id = $1', [post.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.prepare('DELETE FROM scheduled_posts WHERE id = ?').run(post.id);
-  res.json({ ok: true });
 });
 
 module.exports = router;

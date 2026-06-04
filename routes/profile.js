@@ -1,33 +1,43 @@
 const express = require('express');
-const { db } = require('../database');
+const { query } = require('../database');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/', requireAuth, (req, res) => {
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.session.userId);
-  res.json({ profile: profile || {} });
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const r = await query('SELECT * FROM profiles WHERE user_id = $1', [req.session.userId]);
+    res.json({ profile: r.rows[0] || {} });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.put('/', requireAuth, (req, res) => {
-  const fields = ['bio', 'personality', 'tone', 'languages', 'business_info', 'faq', 'sample_messages', 'escalation_keywords'];
-  const updates = {};
-  for (const f of fields) if (f in req.body) updates[f] = req.body[f];
+router.put('/', requireAuth, async (req, res) => {
+  try {
+    const fields = ['bio', 'personality', 'tone', 'languages', 'business_info', 'faq', 'sample_messages', 'escalation_keywords'];
+    const updates = {};
+    for (const f of fields) if (f in req.body) updates[f] = req.body[f];
 
-  const existing = db.prepare('SELECT user_id FROM profiles WHERE user_id = ?').get(req.session.userId);
-  if (!existing) {
-    db.prepare(`INSERT INTO profiles (user_id, updated_at) VALUES (?, ?)`).run(req.session.userId, Date.now());
-  }
+    const exR = await query('SELECT user_id FROM profiles WHERE user_id = $1', [req.session.userId]);
+    if (!exR.rowCount) {
+      await query(`INSERT INTO profiles (user_id, updated_at) VALUES ($1, $2)`, [req.session.userId, Date.now()]);
+    }
 
-  const keys = Object.keys(updates);
-  if (keys.length) {
-    const set = keys.map(k => `${k} = @${k}`).join(', ');
-    db.prepare(`UPDATE profiles SET ${set}, updated_at = @updated_at WHERE user_id = @user_id`).run({
-      ...updates, updated_at: Date.now(), user_id: req.session.userId
-    });
+    const keys = Object.keys(updates);
+    if (keys.length) {
+      const params = [];
+      const set = keys.map(k => { params.push(updates[k]); return `${k} = $${params.length}`; });
+      params.push(Date.now());
+      set.push(`updated_at = $${params.length}`);
+      params.push(req.session.userId);
+      await query(`UPDATE profiles SET ${set.join(', ')} WHERE user_id = $${params.length}`, params);
+    }
+    const r = await query('SELECT * FROM profiles WHERE user_id = $1', [req.session.userId]);
+    res.json({ profile: r.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.session.userId);
-  res.json({ profile });
 });
 
 module.exports = router;
