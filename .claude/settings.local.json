@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(node -e \"const {db, seedAdmin, ensureSubscription} = require\\('./database'\\); console.log\\('OK loaded. tables:', db.prepare\\(\\\\\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\\\\\"\\).all\\(\\).map\\(r=>r.name\\).join\\(', '\\)\\);\")",
+      "Bash(npm install *)",
+      "Bash(PORT=39871 node server.js)",
+      "Bash(curl -s http://localhost:39871/healthz)",
+      "Bash(curl -s http://localhost:39871/billing/plans)",
+      "Bash(node -e \"const Database=require\\('better-sqlite3'\\); const db=new Database\\('data/luckiest.db'\\); for\\(const t of ['users','profiles','subscriptions','platform_connections','conversations','messages','notifications','scheduled_posts']\\){ console.log\\('---',t\\); try{ console.log\\(db.prepare\\('SELECT sql FROM sqlite_master WHERE name=?'\\).get\\(t\\)?.sql\\); }catch\\(e\\){console.log\\(e.message\\);} }\")",
+      "Bash(PORT=39871 ADMIN_PASSWORD=smoketest123 node server.js)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:39871/login.html)",
+      "Bash(npm uninstall *)",
+      "Bash(node -e \"const r=require\\('./routes/auth'\\); const routes=r.stack.filter\\(l=>l.route\\).map\\(l=>Object.keys\\(l.route.methods\\).join\\(','\\).toUpperCase\\(\\)+' '+l.route.path\\); console.log\\(routes.join\\('\\\\n'\\)\\);\")"
+    ]
+  }
+}
