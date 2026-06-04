@@ -30,14 +30,14 @@ function mount(prefix, modulePath) {
   }
 }
 
-mount('/auth', './routes/auth');
-mount('/admin', './routes/admin');
-mount('/billing', './routes/billing');
-mount('/manager', './routes/manager');
-mount('/messages', './routes/messages');
-mount('/platforms', './routes/platforms');
-mount('/profile', './routes/profile');
-mount('/scheduler', './routes/scheduler');
+mount('/api/auth', './routes/auth');
+mount('/api/admin', './routes/admin');
+mount('/api/billing', './routes/billing');
+mount('/api/manager', './routes/manager');
+mount('/api/messages', './routes/messages');
+mount('/api/platforms', './routes/platforms');
+mount('/api/profile', './routes/profile');
+mount('/api/scheduler', './routes/scheduler');
 mount('/webhooks', './routes/webhooks');
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
@@ -49,6 +49,21 @@ const PORT = process.env.PORT || 3000;
   try {
     await initializeDatabase();
     app.listen(PORT, () => console.log('Luckiest-AI running on port ' + PORT));
+
+    try {
+      const { handleIncomingMessage } = require('./services/messaging');
+      const telegram = require('./services/telegram');
+      await telegram.bootstrapAll(handleIncomingMessage);
+    } catch (err) {
+      console.error('[telegram] bootstrap failed:', err.message);
+    }
+
+    try {
+      const scheduler = require('./services/scheduler');
+      scheduler.start();
+    } catch (err) {
+      console.error('[scheduler] start failed:', err.message);
+    }
   } catch (err) {
     console.error('Startup failed:', err);
     process.exit(1);
