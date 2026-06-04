@@ -16,7 +16,8 @@
       "Bash(curl -si https://luckiest-ai.onrender.com/healthz)",
       "Bash(curl -si -X POST https://luckiest-ai.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"nobody@test\",\"password\":\"wrong\"}')",
       "Bash(node -e \"const b = require\\('@whiskeysockets/baileys'\\); console.log\\('exports:', Object.keys\\(b\\).slice\\(0,20\\).join\\(', '\\)\\); console.log\\('default type:', typeof b.default\\); console.log\\('useMultiFileAuthState:', typeof b.useMultiFileAuthState\\); console.log\\('fetchLatestBaileysVersion:', typeof b.fetchLatestBaileysVersion\\); console.log\\('DisconnectReason:', typeof b.DisconnectReason\\);\")",
-      "Bash(node -e \"for \\(const m of ['./services/whatsapp_baileys','./services/messaging','./routes/platforms','./routes/messages']\\) { try { require\\(m\\); console.log\\('OK', m\\); } catch \\(e\\) { console.log\\('FAIL', m, e.message\\); } }\")"
+      "Bash(node -e \"for \\(const m of ['./services/whatsapp_baileys','./services/messaging','./routes/platforms','./routes/messages']\\) { try { require\\(m\\); console.log\\('OK', m\\); } catch \\(e\\) { console.log\\('FAIL', m, e.message\\); } }\")",
+      "Bash(node -e \"require\\('./routes/stats'\\); console.log\\('OK stats router'\\);\")"
     ]
   }
 }

@@ -38,6 +38,7 @@ mount('/api/messages', './routes/messages');
 mount('/api/platforms', './routes/platforms');
 mount('/api/profile', './routes/profile');
 mount('/api/scheduler', './routes/scheduler');
+mount('/api/stats', './routes/stats');
 mount('/webhooks', './routes/webhooks');
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));

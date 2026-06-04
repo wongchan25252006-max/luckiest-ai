@@ -1,3 +1,79 @@
+function createRings() {
+  if (document.querySelector('.ring-container')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'ring-container';
+  wrap.setAttribute('aria-hidden', 'true');
+  wrap.innerHTML = '<div class="ring r4"></div><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>';
+  document.body.appendChild(wrap);
+}
+
+function createParticles(n) {
+  if (document.querySelector('.particles')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'particles';
+  wrap.setAttribute('aria-hidden', 'true');
+  const count = n || (window.innerWidth < 700 ? 22 : 40);
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = 2 + Math.random() * 4;
+    p.style.width = p.style.height = size + 'px';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.animationDuration = (10 + Math.random() * 14) + 's';
+    p.style.animationDelay = (-Math.random() * 18) + 's';
+    wrap.appendChild(p);
+  }
+  document.body.appendChild(wrap);
+}
+
+function fmtCompact(n) {
+  if (n == null) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function injectLiveStats() {
+  if (document.querySelector('.live-stats')) return;
+  const bar = document.createElement('div');
+  bar.className = 'live-stats';
+  bar.innerHTML = `
+    <span class="pulse" title="Live"></span>
+    <div class="item"><span class="num" id="ls-msg">—</span><span class="lbl">Messages</span></div>
+    <div class="item"><span class="num" id="ls-ai">—</span><span class="lbl">AI replies</span></div>
+    <div class="item"><span class="num" id="ls-conv">—</span><span class="lbl">Contacts</span></div>
+    <div class="item"><span class="num" id="ls-plat">—</span><span class="lbl">Platforms</span></div>
+  `;
+  document.body.appendChild(bar);
+
+  async function refresh() {
+    try {
+      const res = await fetch('/api/stats', { credentials: 'include' });
+      if (!res.ok) return;
+      const { stats } = await res.json();
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtCompact(v); };
+      set('ls-msg', stats.messages);
+      set('ls-ai', stats.ai_replies);
+      set('ls-conv', stats.conversations);
+      set('ls-plat', stats.platforms);
+    } catch {}
+  }
+  refresh();
+  setInterval(refresh, 10000);
+}
+
+function initLuxBackground() {
+  createRings();
+  createParticles();
+  injectLiveStats();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLuxBackground);
+} else {
+  initLuxBackground();
+}
+
 async function api(path, opts = {}) {
   const init = { credentials: 'include', headers: {}, ...opts };
   if (init.body && !(init.body instanceof FormData) && typeof init.body !== 'string') {
