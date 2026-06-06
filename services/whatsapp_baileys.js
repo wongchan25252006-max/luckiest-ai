@@ -35,7 +35,10 @@ function sessionDir(connectionId) {
 async function startSession(connection, onMessage) {
   const id = Number(connection.id);
   const existing = sessions.get(id);
-  if (existing && existing.status !== 'disconnected') return existing;
+  if (existing && existing.status !== 'disconnected' && existing.status !== 'logged_out') return existing;
+
+  const entry = { sock: null, qrDataUrl: null, phone: null, status: 'connecting', userId: connection.user_id, connectionId: id };
+  sessions.set(id, entry);
 
   const dir = sessionDir(id);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -53,8 +56,7 @@ async function startSession(connection, onMessage) {
     generateHighQualityLinkPreview: false
   });
 
-  const entry = { sock, qrDataUrl: null, phone: null, status: 'connecting', userId: connection.user_id, connectionId: id };
-  sessions.set(id, entry);
+  entry.sock = sock;
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -85,9 +87,11 @@ async function startSession(connection, onMessage) {
       const code = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
       entry.status = loggedOut ? 'logged_out' : 'disconnected';
-      sessions.delete(id);
+      entry.sock = null;
+      entry.qrDataUrl = null;
       console.log(`[baileys] connection ${id} CLOSE code=${code} loggedOut=${loggedOut}`);
       if (loggedOut) {
+        sessions.delete(id);
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
         try { await query(`UPDATE platform_connections SET active = 0 WHERE id = $1`, [id]); } catch {}
       } else {
@@ -169,8 +173,8 @@ async function sendMessage({ userId, externalId, body }) {
   );
   const conn = r.rows[0];
   if (!conn) throw new Error('No WhatsApp (Baileys) connection');
-  const entry = sessions.get(conn.id);
-  if (!entry || entry.status !== 'connected') throw new Error('WhatsApp socket not connected');
+  const entry = sessions.get(Number(conn.id));
+  if (!entry || entry.status !== 'connected' || !entry.sock) throw new Error('WhatsApp socket not connected');
   const digits = String(externalId).replace(/\D/g, '');
   const jid = String(externalId).includes('@') ? externalId : `${digits}@s.whatsapp.net`;
   await entry.sock.sendMessage(jid, { text: body });
