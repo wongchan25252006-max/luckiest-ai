@@ -1,18 +1,32 @@
 require('dotenv').config();
-const { Pool } = require('pg');
+const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+const url = process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL;
+const authToken = process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN;
+if (!url) throw new Error('TURSO_DATABASE_URL is required');
 
-async function query(text, params) {
-  return pool.query(text, params);
+const client = createClient({ url, authToken });
+
+function translatePlaceholders(sql) {
+  return sql.replace(/\$(\d+)/g, '?');
 }
 
+async function query(text, params) {
+  const sql = translatePlaceholders(text);
+  const args = params || [];
+  const result = await client.execute({ sql, args });
+  return {
+    rows: result.rows,
+    rowCount: result.rows.length || result.rowsAffected || 0,
+    lastInsertRowid: result.lastInsertRowid,
+  };
+}
+
+const pool = { query };
+
 async function ensureSubscription(userId) {
-  await pool.query(
+  await query(
     `INSERT INTO subscriptions (user_id, plan, status, amount_monthly)
      VALUES ($1, 'free', 'trialing', 0)
      ON CONFLICT (user_id) DO NOTHING`,
@@ -21,14 +35,16 @@ async function ensureSubscription(userId) {
 }
 
 async function initializeDatabase() {
-  await pool.query(`
+  await client.execute('PRAGMA foreign_keys = ON');
+
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       full_name TEXT,
       role TEXT NOT NULL DEFAULT 'user',
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS profiles (
@@ -41,35 +57,35 @@ async function initializeDatabase() {
       faq TEXT,
       sample_messages TEXT,
       escalation_keywords TEXT,
-      updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS subscriptions (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       plan TEXT NOT NULL DEFAULT 'free',
       status TEXT NOT NULL DEFAULT 'trialing',
       amount_monthly INTEGER NOT NULL DEFAULT 0,
-      started_at BIGINT,
-      current_period_end BIGINT,
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      started_at INTEGER,
+      current_period_end INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS platform_connections (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       platform TEXT NOT NULL,
       account_label TEXT,
       access_token TEXT NOT NULL,
       account_id TEXT NOT NULL,
       extra TEXT,
-      connected_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+      connected_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
       active INTEGER NOT NULL DEFAULT 1,
       UNIQUE (user_id, platform, account_id)
     );
 
     CREATE TABLE IF NOT EXISTS conversations (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       platform TEXT NOT NULL,
       external_id TEXT NOT NULL,
@@ -79,27 +95,21 @@ async function initializeDatabase() {
       ai_enabled INTEGER NOT NULL DEFAULT 1,
       needs_human INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
-      last_message_at BIGINT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+      last_message_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
       UNIQUE (user_id, platform, external_id)
     );
   `);
 
-  await pool.query(`
-    DO $migrate$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'messages' AND column_name = 'agent_id'
-      ) THEN
-        DROP TABLE messages CASCADE;
-      END IF;
-    END $migrate$;
-  `);
+  const msgInfo = await client.execute('PRAGMA table_info(messages)');
+  const hasAgentId = msgInfo.rows.some((r) => r.name === 'agent_id');
+  if (hasAgentId) {
+    await client.execute('DROP TABLE messages');
+  }
 
-  await pool.query(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS messages (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       direction TEXT NOT NULL,
       sender TEXT,
@@ -109,32 +119,32 @@ async function initializeDatabase() {
       transcript TEXT,
       ai_generated INTEGER NOT NULL DEFAULT 0,
       external_ref TEXT,
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
       type TEXT NOT NULL,
       title TEXT NOT NULL,
       body TEXT,
       read INTEGER NOT NULL DEFAULT 0,
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS scheduled_posts (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       platforms TEXT NOT NULL,
       caption TEXT,
       media_path TEXT,
       media_type TEXT,
-      scheduled_for BIGINT NOT NULL,
+      scheduled_for INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
-      posted_at BIGINT,
+      posted_at INTEGER,
       error TEXT,
-      created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
     CREATE INDEX IF NOT EXISTS idx_conv_user_last ON conversations(user_id, last_message_at DESC);
@@ -147,7 +157,7 @@ async function initializeDatabase() {
   const password = process.env.ADMIN_PASSWORD;
   if (password) {
     const hash = bcrypt.hashSync(password, 10);
-    const result = await pool.query(
+    const result = await query(
       `INSERT INTO users (email, password_hash, full_name, role)
        VALUES ($1, $2, $3, 'admin')
        ON CONFLICT (email) DO NOTHING
@@ -162,4 +172,4 @@ async function initializeDatabase() {
   console.log('Database initialized');
 }
 
-module.exports = { pool, query, ensureSubscription, initializeDatabase };
+module.exports = { client, pool, query, ensureSubscription, initializeDatabase };

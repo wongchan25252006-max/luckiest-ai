@@ -1,11 +1,12 @@
-# Render Blueprint — deploys luckiest-ai as a web service with a persistent disk.
+# Render Blueprint — deploys luckiest-ai as a web service.
 # https://render.com/docs/blueprint-spec
 #
-# Free tier note: the `free` plan does NOT support disks, so your SQLite database
-# and uploaded images would be wiped on every deploy/restart. The `starter` plan
-# ($7/mo) supports a 1 GB persistent disk for $0.25/mo, which is what we mount
-# here. To deploy on the free tier instead, change `plan: starter` to `plan: free`
-# and delete the `disk:` block at the bottom.
+# The database is hosted on Turso (libsql) so no persistent disk is required for
+# data. Uploaded post images are stored on the local disk; on the `free` plan
+# they are wiped on every deploy/restart. The `starter` plan ($7/mo) supports a
+# 1 GB persistent disk for $0.25/mo which is mounted here for /uploads. To
+# deploy on the free tier instead, change `plan: starter` to `plan: free` and
+# delete the `disk:` block at the bottom.
 
 services:
   - type: web
@@ -32,6 +33,11 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
 
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL
@@ -54,12 +60,10 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
-      - key: DATA_DIR
-        value: /var/data
       - key: UPLOADS_DIR
         value: /var/data/uploads
 
     disk:
-      name: luckiest-data
+      name: luckiest-uploads
       mountPath: /var/data
       sizeGB: 1
