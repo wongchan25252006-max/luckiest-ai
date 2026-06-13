@@ -23,9 +23,12 @@ async function findOrCreateConversation({ userId, platform, externalId, customer
   let conv = existing.rows[0];
 
   if (!conv) {
+    // New contacts are saved with AI OFF by default — the admin must
+    // explicitly opt them in (via the dashboard or `/cmd ai on <phone>`)
+    // before the AI starts replying on their behalf.
     const ins = await query(
-      `INSERT INTO conversations (user_id, platform, external_id, customer_name, customer_handle, profile_pic, last_message_at, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      `INSERT INTO conversations (user_id, platform, external_id, customer_name, customer_handle, profile_pic, ai_enabled, last_message_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8) RETURNING *`,
       [userId, platform, externalId, customerName || null, customerHandle || null, profilePic || null, Date.now(), Date.now()]
     );
     conv = ins.rows[0];
@@ -35,7 +38,7 @@ async function findOrCreateConversation({ userId, platform, externalId, customer
       conversationId: conv.id,
       type: 'new_contact',
       title: `New contact: ${customerName || customerHandle || 'unknown'}`,
-      body: `First time messaging you on ${platform}.`
+      body: `First time messaging you on ${platform}. AI is OFF — turn it on from the dashboard or send "/cmd ai on ${externalId}" to your own WhatsApp.`
     });
     return { conv, isNew: true };
   }

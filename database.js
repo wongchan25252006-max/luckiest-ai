@@ -92,7 +92,7 @@ async function initializeDatabase() {
       customer_name TEXT,
       customer_handle TEXT,
       profile_pic TEXT,
-      ai_enabled INTEGER NOT NULL DEFAULT 1,
+      ai_enabled INTEGER NOT NULL DEFAULT 0,
       needs_human INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       last_message_at INTEGER NOT NULL,

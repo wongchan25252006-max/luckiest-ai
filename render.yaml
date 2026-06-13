@@ -62,6 +62,8 @@ services:
 
       - key: UPLOADS_DIR
         value: /var/data/uploads
+      - key: DATA_DIR
+        value: /var/data
 
     disk:
       name: luckiest-uploads

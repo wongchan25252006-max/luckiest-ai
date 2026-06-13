@@ -4,16 +4,26 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const { initializeDatabase } = require('./database');
+const { TursoSessionStore } = require('./services/session_store');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+const IS_PROD = process.env.NODE_ENV === 'production';
 app.use(session({
+  store: new TursoSessionStore(),
   secret: process.env.SESSION_SECRET || 'change-me',
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax' }
+  rolling: true, // refresh expiry on every request so active users never get logged out
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: IS_PROD,                  // HTTPS-only in production (Render serves HTTPS)
+    maxAge: 30 * 24 * 60 * 60 * 1000  // 30 days — phones stay signed in
+  }
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
